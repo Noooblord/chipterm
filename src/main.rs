@@ -1,14 +1,16 @@
-use lazy_static::lazy_static;
+mod display;
+mod utils;
+
+use crate::utils::BUTTONMAP;
+use display::Display;
+
 use rand::Rng;
 use signal_hook;
 use signal_hook::consts::signal::SIGWINCH;
-use std::collections::HashMap;
-use std::io::Write;
-use std::sync::{Arc, Mutex};
 use std::{
     io,
     sync::mpsc::channel,
-    thread::{self, sleep},
+    thread,
     time::{Duration, Instant},
 };
 use termion::{
@@ -17,147 +19,20 @@ use termion::{
     input::TermRead,
     raw::{IntoRawMode, RawTerminal},
 };
+use tui::backend::TermionBackend;
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::Color;
 use tui::text::{Span, Spans};
-use tui::widgets::{
-    canvas::{Canvas, Line, Map, MapResolution, Rectangle, Shape},
-    Block, Borders, Paragraph, Sparkline, Widget, Wrap,
-};
+use tui::widgets::{canvas::Canvas, Block, Borders, Paragraph, Wrap};
 use tui::Terminal;
-use tui::{
-    backend::{Backend, TermionBackend},
-    Frame,
-};
 use tui::{style::Style, symbols};
 
-// lazy_static! {
-//     static ref PRIVILEGES: HashMap<&'static str, Vec<&'static str>> = {
-//         let mut map = HashMap::new();
-//         map.insert("James", vec!["user", "admin"]);
-//         map.insert("Jim", vec!["user"]);
-//         map
-//     };
-// }
-lazy_static! {
-    static ref BUTTONMAP: HashMap<char, &'static str> = {
-        let mut map = HashMap::new();
-        map.insert('0', "X");
-        map.insert('1', "1");
-        map.insert('2', "2");
-        map.insert('3', "3");
-        map.insert('4', "Q");
-        map.insert('5', "W");
-        map.insert('6', "E");
-        map.insert('7', "A");
-        map.insert('8', "S");
-        map.insert('9', "D");
-        map.insert('A', "Z");
-        map.insert('B', "C");
-        map.insert('C', "4");
-        map.insert('D', "R");
-        map.insert('E', "F");
-        map.insert('F', "V");
-        map
-    };
-}
-
-lazy_static! {
-    static ref CHARMAP: HashMap<char, u8> = {
-        let mut map = HashMap::new();
-        map.insert('0', 0x0u8);
-        map.insert('1', 0x1u8);
-        map.insert('2', 0x2u8);
-        map.insert('3', 0x3u8);
-        map.insert('4', 0x4u8);
-        map.insert('5', 0x5u8);
-        map.insert('6', 0x6u8);
-        map.insert('7', 0x7u8);
-        map.insert('8', 0x8u8);
-        map.insert('9', 0x9u8);
-        map.insert('A', 0xAu8);
-        map.insert('B', 0xBu8);
-        map.insert('C', 0xCu8);
-        map.insert('D', 0xDu8);
-        map.insert('E', 0xEu8);
-        map.insert('F', 0xFu8);
-        map
-    };
-}
-
 #[derive(Debug, Clone)]
-struct Display {
-    grid: [[u8; 32]; 64],
-}
-
-impl Shape for Display {
-    fn draw(&self, painter: &mut tui::widgets::canvas::Painter) {
-        let max_y = 32;
-        let max_x = 64;
-        // let mut output = std::fs::File::create("screendbg").unwrap();
-        for y in 0..max_y {
-            for x in 0..max_x {
-                let pixel = self.grid[x][y];
-                // write!(output, "{}", pixel).unwrap();
-                if pixel == 1 {
-                    let (x, y) = painter.get_point(x as f64, (31 - y) as f64).unwrap();
-                    painter.paint(x, y, Color::Red)
-                }
-            }
-            // writeln!(output).unwrap();
-        }
-    }
-}
-
-impl Display {
-    fn cls(&mut self) {
-        self.grid.fill([0; 32]);
-    }
-    fn draw_sprite(
-        &mut self,
-        sprite_start_x: u8,
-        sprite_start_y: u8,
-        mut sprite: Vec<Vec<u8>>,
-    ) -> bool {
-        // let mut output = std::fs::File::create("spritedbg").unwrap();
-        let max_y = sprite[0].len() - 1;
-        let max_x = sprite.len() - 1;
-        let mut collision = false;
-        let sprite_start_x = sprite_start_x % 63;
-        let sprite_start_y = sprite_start_y % 31;
-        for y in 0..=max_y {
-            for x in 0..=max_x {
-                // write!(output, "{}", sprite[x][y]).unwrap();
-                let x_coord = sprite_start_x as usize + x;
-                let y_coord = sprite_start_y as usize + y;
-                if !(x_coord < 64 && y_coord < 32) {
-                    continue;
-                }
-                let pixel = self.grid[x_coord][y_coord];
-                if pixel == 1 && sprite[x][y] == 1 {
-                    collision = true;
-                }
-                self.grid[x_coord][y_coord] ^= sprite[x][y];
-            }
-            // writeln!(output).unwrap();
-        }
-        // writeln!(
-        //     output,
-        //     "Sprite location - x:{} y:{}",
-        //     sprite_start_x, sprite_start_y
-        // )
-        // .unwrap();
-        // writeln!(output, "Sprite max - x:{} y:{}", max_x, max_y).unwrap();
-        collision
-    }
-}
-
-#[derive(Debug, Clone)]
-struct App {
-    debug: bool,
-    show_real_controls: bool,
-    rewind: u8,
-    paused: bool,
+pub struct App {
+    pub debug: bool,
+    pub show_real_controls: bool,
+    pub rewind: u8,
+    pub paused: bool,
 }
 
 impl App {
@@ -521,7 +396,7 @@ fn main() -> Result<(), io::Error> {
     // Timer tick event (60Hz)
     thread::spawn(move || loop {
         thread::sleep(Duration::from_nanos(16666667));
-        delay_timer_tick_tx.send(Event::Key(Key::F(13))).unwrap();
+        delay_timer_tick_tx.send(Event::Key(Key::F(13)));
     });
 
     thread::spawn(move || loop {
@@ -685,7 +560,7 @@ fn draw_frame(
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
             .split(col_left);
 
-        let (registers, stack) = (chunks[0], chunks[1]);
+        let (registers, controls) = (chunks[0], chunks[1]);
 
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
@@ -709,7 +584,7 @@ fn draw_frame(
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
             .split(col_right);
 
-        let (help, controls) = (chunks[0], chunks[1]);
+        let (help, stack) = (chunks[0], chunks[1]);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -919,7 +794,7 @@ fn render_key_widget<'a>(key: char, app: &'a App, chip8: &'a Chip8) -> Paragraph
     let mut widget = Paragraph::new(Span::raw(letter))
         .block(Block::default().borders(Borders::ALL))
         .alignment(Alignment::Center);
-    if chip8.keys[*CHARMAP.get(&key).unwrap() as usize] > 0 {
+    if chip8.keys[key.to_digit(16).unwrap() as usize] > 0 {
         widget = widget.style(Style::default().fg(Color::Red));
     }
     widget
