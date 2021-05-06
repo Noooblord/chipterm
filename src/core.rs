@@ -1,5 +1,7 @@
 use std::io;
 
+use rand::{thread_rng, Rng};
+
 use crate::display::Display;
 
 #[derive(Debug, Clone)]
@@ -11,6 +13,7 @@ pub struct Chip8 {
     pub ireg: u16,
     pub gfx: Display,
     pub delay_timer: u8,
+    pub sound_timer: u8,
     pub stack: [u16; 16],
     pub stack_pointer: u16,
     pub keys: [u8; 16],
@@ -29,6 +32,7 @@ impl Chip8 {
                 grid: [[0u8; 32]; 64],
             },
             delay_timer: 0,
+            sound_timer: 0,
             stack: [0; 16],
             stack_pointer: 0,
             keys: [0; 16],
@@ -146,69 +150,85 @@ impl Chip8 {
             }
             //3XNN	Cond	if(Vx==NN)	Skips the next instruction if VX equals NN. (Usually the next instruction is a jump to skip a code block)
             3 => {
-                unimplemented!()
+                if self.vreg[x as usize] == nn {
+                    self.program_counter += 2;
+                }
             }
             //4XNN	Cond	if(Vx!=NN)	Skips the next instruction if VX does not equal NN. (Usually the next instruction is a jump to skip a code block)
             4 => {
-                unimplemented!()
+                if self.vreg[x as usize] != nn {
+                    self.program_counter += 2;
+                }
             }
             //5XY0	Cond	if(Vx==Vy)	Skips the next instruction if VX equals VY. (Usually the next instruction is a jump to skip a code block)
             5 => {
-                unimplemented!()
+                if self.vreg[x as usize] == self.vreg[y as usize] {
+                    self.program_counter += 2;
+                }
             }
             //6XNN	Const	Vx = NN	    Sets VX to NN.
             6 => self.vreg[x as usize] = nn,
             //7XNN	Const	Vx += NN	Adds NN to VX. (Carry flag is not changed)
             7 => self.vreg[x as usize] += nn,
-            //8XY0	Assign	Vx=Vy	    Sets VX to the value of VY.
             8 => match n {
+                //8XY0	Assign	Vx=Vy	    Sets VX to the value of VY.
+                0 => self.vreg[x as usize] = self.vreg[y as usize],
                 //8XY1	BitOp	Vx=Vx|Vy	Sets VX to VX or VY. (Bitwise OR operation)
-                1 => {
-                    unimplemented!()
-                }
+                1 => self.vreg[x as usize] |= self.vreg[y as usize],
                 //8XY2	BitOp	Vx=Vx&Vy	Sets VX to VX and VY. (Bitwise AND operation)
-                2 => {
-                    unimplemented!()
-                }
+                2 => self.vreg[x as usize] &= self.vreg[y as usize],
                 //8XY3	BitOp	Vx=Vx^Vy	Sets VX to VX xor VY.
-                3 => {
-                    unimplemented!()
-                }
+                3 => self.vreg[x as usize] ^= self.vreg[y as usize],
                 //8XY4	Math	Vx += Vy	Adds VY to VX. VF is set to 1 when there's a carry, and to 0 when there is not.
                 4 => {
-                    unimplemented!()
+                    match self.vreg[x as usize].checked_add(self.vreg[y as usize]) {
+                        Some(_) => self.vreg[0xF] = 1,
+                        None => self.vreg[0xF] = 0,
+                    }
+                    self.vreg[x as usize] =
+                        self.vreg[x as usize].wrapping_add(self.vreg[y as usize]);
                 }
                 //8XY5	Math	Vx -= Vy	VY is subtracted from VX. VF is set to 0 when there's a borrow, and 1 when there is not.
                 5 => {
-                    unimplemented!()
+                    match self.vreg[x as usize].checked_sub(self.vreg[y as usize]) {
+                        Some(_) => self.vreg[0xF] = 0,
+                        None => self.vreg[0xF] = 1,
+                    }
+                    self.vreg[x as usize] =
+                        self.vreg[x as usize].wrapping_sub(self.vreg[y as usize]);
                 }
                 //8XY6	BitOp	Vx>>=1	    Stores the least significant bit of VX in VF and then shifts VX to the right by 1.[b]
                 6 => {
-                    unimplemented!()
+                    self.vreg[0xF] = self.vreg[x as usize] & 0b00000001;
+                    self.vreg[x as usize] >>= 1;
                 }
                 //8XY7	Math	Vx=Vy-Vx	Sets VX to VY minus VX. VF is set to 0 when there's a borrow, and 1 when there is not.
                 7 => {
-                    unimplemented!()
+                    match self.vreg[y as usize].checked_sub(self.vreg[x as usize]) {
+                        Some(_) => self.vreg[0xF] = 0,
+                        None => self.vreg[0xF] = 1,
+                    }
+                    self.vreg[x as usize] =
+                        self.vreg[y as usize].wrapping_sub(self.vreg[x as usize]);
                 }
                 //8XYE	BitOp	Vx<<=1	    Stores the most significant bit of VX in VF and then shifts VX to the left by 1.[b]
                 _ => {
-                    unimplemented!()
+                    self.vreg[0xF] = (self.vreg[x as usize] >> 7) & 0b00000001;
+                    self.vreg[x as usize] <<= 1;
                 }
             },
             //9XY0	Cond	if(Vx!=Vy)	Skips the next instruction if VX does not equal VY. (Usually the next instruction is a jump to skip a code block)
             9 => {
-                unimplemented!()
+                if self.vreg[x as usize] != self.vreg[y as usize] {
+                    self.program_counter += 2;
+                }
             }
             //ANNN	MEM	    I = NNN	    Sets I to the address NNN.
             0xA => self.ireg = nnn,
             //BNNN	Flow	PC=V0+NNN	Jumps to the address NNN plus V0.
-            0xB => {
-                unimplemented!()
-            }
+            0xB => self.program_counter = self.vreg[0] as u16 + nnn,
             //CXNN	Rand	Vx=rand()&NN	Sets VX to the result of a bitwise and operation on a random number (Typically: 0 to 255) and NN.
-            0xC => {
-                unimplemented!()
-            }
+            0xC => self.vreg[x as usize] = thread_rng().gen_range(0..=255) & nn,
             //DXYN	Disp	draw(Vx,Vy,N)
             //Draws a sprite at coordinate (VX, VY) that has a width of 8 pixels and a height of N+1 pixels.
             //Each row of 8 pixels is read as bit-coded starting from memory location I;
@@ -244,38 +264,33 @@ impl Chip8 {
             0xE => match nn {
                 //EX9E	KeyOp	if(key()==Vx)	Skips the next instruction if the key stored in VX is pressed. (Usually the next instruction is a jump to skip a code block)
                 0x9E => {
-                    unimplemented!()
+                    if self.keys[self.vreg[x as usize] as usize] > 0 {
+                        self.program_counter += 2;
+                    }
                 }
                 //EXA1	KeyOp	if(key()!=Vx)	Skips the next instruction if the key stored in VX is not pressed. (Usually the next instruction is a jump to skip a code block)
                 _ => {
-                    unimplemented!()
+                    if !(self.keys[self.vreg[x as usize] as usize] > 0) {
+                        self.program_counter += 2;
+                    }
                 }
             },
             0xF => match nn {
                 //FX07	Timer	Vx = get_delay()	Sets VX to the value of the delay timer.
-                7 => {
-                    unimplemented!()
-                }
+                7 => self.vreg[x as usize] = self.delay_timer,
                 //FX0A	KeyOp	Vx = get_key()	A key press is awaited, and then stored in VX. (Blocking Operation. All instruction halted until next key event)
-                0xA => {
-                    unimplemented!()
-                }
+                0xA => match self.keys.iter().enumerate().find(|(_, &k)| k > 0) {
+                    Some((i, _)) => self.vreg[x as usize] = i as u8,
+                    None => self.program_counter -= 2,
+                },
                 //FX15	Timer	delay_timer(Vx)	Sets the delay timer to VX.
-                0x15 => {
-                    unimplemented!()
-                }
+                0x15 => self.delay_timer = self.vreg[x as usize],
                 //FX18	Sound	sound_timer(Vx)	Sets the sound timer to VX.
-                0x18 => {
-                    unimplemented!()
-                }
+                0x18 => self.sound_timer = self.vreg[x as usize],
                 //FX1E	MEM	    I +=Vx	Adds VX to I. VF is not affected.[c]
-                0x1E => {
-                    unimplemented!()
-                }
+                0x1E => self.ireg += self.vreg[x as usize] as u16,
                 //FX29	MEM	    I=sprite_addr[Vx]	Sets I to the location of the sprite for the character in VX. Characters 0-F (in hexadecimal) are represented by a 4x5 font.
-                0x29 => {
-                    unimplemented!()
-                }
+                0x29 => self.ireg = (0x50 + self.vreg[x as usize] * 5) as u16,
                 //FX33	BCD	    Stores the binary-coded decimal representation of VX, with the most significant of three digits at the address in I, the middle digit at I plus 1, and the least significant digit at I plus 2. (In other words, take the decimal representation of VX, place the hundreds digit in memory at location in I, the tens digit at location I+1, and the ones digit at location I+2.)
                 0x33 => {
                     //(251 / 10) % 10)
@@ -286,11 +301,17 @@ impl Chip8 {
                 }
                 //FX55	MEM	    reg_dump(Vx,&I)	Stores V0 to VX (including VX) in memory starting at address I. The offset from I is increased by 1 for each value written, but I itself is left unmodified.[d]
                 0x55 => {
-                    unimplemented!()
+                    for (i, v) in (0..=self.vreg[x as usize]).enumerate() {
+                        self.mem[(self.ireg + i as u16) as usize] = self.vreg[v as usize]
+                    }
                 }
                 //FX65	MEM	    reg_load(Vx,&I)	Fills V0 to VX (including VX) with values from memory starting at address I. The offset from I is increased by 1 for each value written, but I itself is left unmodified.[d]
                 _ => {
-                    unimplemented!()
+                    // panic!("{:?}", 0..=self.vreg[x as usize]);
+                    for (i, v) in (0..=std::cmp::min(self.vreg[x as usize], 15)).enumerate() {
+                        self.vreg[v as usize] = self.mem[(self.ireg + i as u16) as usize]
+                    }
+                    // self.ireg += std::cmp::min(self.vreg[x as usize], 15) as u16
                 }
             },
             _ => panic!("Should never happen, Chip8 dump: {:?}", self),

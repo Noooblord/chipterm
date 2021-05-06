@@ -5,12 +5,14 @@ mod utils;
 use crate::core::Chip8;
 use crate::utils::BUTTONMAP;
 use display::Display;
+use structopt::StructOpt;
 
 use rand::Rng;
 use signal_hook;
 use signal_hook::consts::signal::SIGWINCH;
 use std::{
-    io,
+    io::{self, Read},
+    path::PathBuf,
     sync::mpsc::channel,
     thread,
     time::{Duration, Instant},
@@ -35,11 +37,13 @@ pub struct App {
     pub show_real_controls: bool,
     pub rewind: u8,
     pub paused: bool,
+    pub args: AppArgs,
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(args: AppArgs) -> Self {
         App {
+            args,
             debug: false,
             show_real_controls: true,
             rewind: 0,
@@ -48,10 +52,19 @@ impl App {
     }
 }
 
+#[derive(Debug, Clone, StructOpt)]
+#[structopt(name = "chipterm", about = "Chip8 emulator in terminal.")]
+pub struct AppArgs {
+    //path to chip8 rom
+    #[structopt(parse(from_os_str))]
+    rompath: PathBuf,
+}
+
 fn main() -> Result<(), io::Error> {
-    let mut app = App::new();
+    let mut app = App::new(AppArgs::from_args());
     let mut chip8 = Chip8::new();
-    let romdata = std::fs::read("./logo.ch8")?;
+
+    let romdata = std::fs::read(&app.args.rompath)?;
     chip8.load_game(&romdata)?;
 
     let stdin = io::stdin();
@@ -94,14 +107,14 @@ fn main() -> Result<(), io::Error> {
 
     // Cpu tick event (60Hz)
     thread::spawn(move || loop {
-        thread::sleep(Duration::from_nanos(16666667));
+        thread::sleep(Duration::from_nanos(16666667 / 5));
         cpu_tick_tx.send(Event::Key(Key::Null)).unwrap();
     });
 
     // Timer tick event (60Hz)
     thread::spawn(move || loop {
         thread::sleep(Duration::from_nanos(16666667));
-        delay_timer_tick_tx.send(Event::Key(Key::F(13)));
+        delay_timer_tick_tx.send(Event::Key(Key::F(13))).unwrap();
     });
 
     thread::spawn(move || loop {
@@ -490,7 +503,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-fn render_key_widget<'a>(key: char, app: &'a App, chip8: &'a Chip8) -> Paragraph<'a> {
+fn render_key_widget<'a, 'b>(key: char, app: &'a App, chip8: &'a Chip8) -> Paragraph<'b> {
     let letter = if app.show_real_controls {
         key.to_string()
     } else {
