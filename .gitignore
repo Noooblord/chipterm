@@ -1,3 +1,4 @@
 /target
-logo.ch8
-
+/c8games
+*.ch8
+.DS_Store

@@ -301,16 +301,25 @@ impl Chip8 {
                 }
                 //FX55	MEM	    reg_dump(Vx,&I)	Stores V0 to VX (including VX) in memory starting at address I. The offset from I is increased by 1 for each value written, but I itself is left unmodified.[d]
                 0x55 => {
-                    for (i, v) in (0..=self.vreg[x as usize]).enumerate() {
-                        self.mem[(self.ireg + i as u16) as usize] = self.vreg[v as usize]
+                    // if self.vreg[x as usize] > 15 {
+                    //     panic!("{}", self.vreg[x as usize]);
+                    // };
+                    for reg in 0..=x {
+                        self.mem[(self.ireg + reg as u16) as usize] = self.vreg[reg as usize];
                     }
+                    // for (i, v) in (0..std::cmp::min(self.vreg[x as usize], 16)).enumerate() {
+                    //     self.mem[(self.ireg + i as u16) as usize] = self.vreg[i]
+                    // }
                 }
                 //FX65	MEM	    reg_load(Vx,&I)	Fills V0 to VX (including VX) with values from memory starting at address I. The offset from I is increased by 1 for each value written, but I itself is left unmodified.[d]
                 _ => {
                     // panic!("{:?}", 0..=self.vreg[x as usize]);
-                    for (i, v) in (0..=std::cmp::min(self.vreg[x as usize], 15)).enumerate() {
-                        self.vreg[v as usize] = self.mem[(self.ireg + i as u16) as usize]
+                    for reg in 0..=x {
+                        self.vreg[reg as usize] = self.mem[(self.ireg + reg as u16) as usize];
                     }
+                    // for (i, v) in (0..=std::cmp::min(self.vreg[x as usize], 15)).enumerate() {
+                    //     self.vreg[i] = self.mem[(self.ireg + i as u16) as usize]
+                    // }
                     // self.ireg += std::cmp::min(self.vreg[x as usize], 15) as u16
                 }
             },

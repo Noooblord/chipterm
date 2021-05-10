@@ -9,17 +9,14 @@ impl Shape for Display {
     fn draw(&self, painter: &mut tui::widgets::canvas::Painter) {
         let max_y = 32;
         let max_x = 64;
-        // let mut output = std::fs::File::create("screendbg").unwrap();
         for y in 0..max_y {
             for x in 0..max_x {
                 let pixel = self.grid[x][y];
-                // write!(output, "{}", pixel).unwrap();
                 if pixel == 1 {
                     let (x, y) = painter.get_point(x as f64, (31 - y) as f64).unwrap();
-                    painter.paint(x, y, Color::Red)
+                    painter.paint(x, y, Color::Reset)
                 }
             }
-            // writeln!(output).unwrap();
         }
     }
 }

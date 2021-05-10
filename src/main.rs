@@ -74,6 +74,7 @@ fn main() -> Result<(), io::Error> {
     let input_tx = tx.clone();
     let signal_tx = tx.clone();
     let cpu_tick_tx = tx.clone();
+    let draw_tick_tx = tx.clone();
     let delay_timer_tick_tx = tx.clone();
     let input_clear_tx = tx.clone();
 
@@ -105,10 +106,15 @@ fn main() -> Result<(), io::Error> {
         }
     });
 
-    // Cpu tick event (60Hz)
+    // Cpu tick event (700 instructions per second)
     thread::spawn(move || loop {
-        thread::sleep(Duration::from_nanos(16666667 / 5));
+        thread::sleep(Duration::from_nanos(700000));
         cpu_tick_tx.send(Event::Key(Key::Null)).unwrap();
+    });
+
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_nanos(16666667));
+        draw_tick_tx.send(Event::Key(Key::F(15))).unwrap();
     });
 
     // Timer tick event (60Hz)
@@ -197,6 +203,17 @@ fn main() -> Result<(), io::Error> {
                 }
             }
 
+            Event::Key(Key::F(15)) => {
+                // Draw canvas
+                draw_frame(
+                    &mut terminal,
+                    &mut duration,
+                    &mut app,
+                    &chip8,
+                    &emulation_state,
+                )?
+            }
+
             // CPU timer tick
             Event::Key(Key::Null) => {
                 // TODO decrement keyups (key is valid for two ticks)
@@ -207,14 +224,6 @@ fn main() -> Result<(), io::Error> {
                     // Read from program counter and execute opcode
                     chip8.emulation_cycle();
                 }
-                // Draw canvas
-                draw_frame(
-                    &mut terminal,
-                    &mut duration,
-                    &mut app,
-                    &chip8,
-                    &emulation_state,
-                )?
             }
             // Draw canvas
             _ => draw_frame(
